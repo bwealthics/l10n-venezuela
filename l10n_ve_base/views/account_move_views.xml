@@ -14,6 +14,14 @@
                     invisible="move_type not in ('out_invoice', 'in_invoice', 'out_refund', 'in_refund')"
                 />
                 <field
+                    name="l10n_ve_control_date"
+                    invisible="country_code != 'VE' or move_type not in ('out_invoice', 'in_invoice', 'out_refund', 'in_refund')"
+                />
+                <field
+                    name="l10n_ve_emission_medium"
+                    invisible="not l10n_ve_emission_medium"
+                />
+                <field
                     name="supplier_invoice_number"
                     invisible="move_type not in ('in_invoice', 'in_refund')"
                 />

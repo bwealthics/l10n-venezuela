@@ -4,6 +4,12 @@
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
+from .account_journal import (
+    EMISSION_MEDIUM_SELECTION,
+    POST_ASSIGNED_MEDIUMS,
+    PREPRINTED_MEDIUMS,
+)
+
 
 class AccountMove(models.Model):
     _inherit = "account.move"
@@ -43,6 +49,30 @@ class AccountMove(models.Model):
         copy=False,
         help="Original invoice number from supplier",
     )
+    l10n_ve_control_date = fields.Date(
+        string="Control Number Date",
+        copy=False,
+        tracking=True,
+        help="Date on which the printing house or the fiscal machine "
+        "assigned the control number.",
+    )
+    l10n_ve_emission_medium = fields.Selection(
+        selection=EMISSION_MEDIUM_SELECTION,
+        string="Emission Medium",
+        compute="_compute_l10n_ve_emission_medium",
+        store=True,
+        copy=False,
+        help="Emission medium of the sales journal, kept on the document "
+        "when it is posted so later journal changes do not alter it.",
+    )
+
+    @api.depends("journal_id", "move_type")
+    def _compute_l10n_ve_emission_medium(self):
+        for move in self:
+            move.l10n_ve_emission_medium = (
+                move._l10n_ve_is_emission_document()
+                and move.journal_id.l10n_ve_emission_medium
+            )
 
     @api.constrains("nro_ctrl", "partner_id", "move_type", "company_id")
     def _check_unique_nro_ctrl(self):
@@ -96,6 +126,79 @@ class AccountMove(models.Model):
     def _l10n_ve_is_fiscal_invoice(self):
         self.ensure_one()
         return self.is_invoice(include_receipts=True)
+
+    def _l10n_ve_is_emission_document(self):
+        """Customer document of a Venezuelan company: it has a medium."""
+        self.ensure_one()
+        return self.country_code == "VE" and self.is_sale_document(
+            include_receipts=True
+        )
+
+    def _l10n_ve_check_emission_medium(self):
+        """Snapshot the journal medium and apply its posting rule.
+
+        Pre-printed media carry the control number on the paper, so it is
+        required before posting. Digital printing houses and fiscal
+        machines assign it after issuing; see
+        ``_l10n_ve_assign_control_data``.
+        """
+        self.ensure_one()
+        if not self._l10n_ve_is_emission_document():
+            return
+        medium = self.journal_id.l10n_ve_emission_medium
+        if self.l10n_ve_emission_medium != medium:
+            self.l10n_ve_emission_medium = medium
+        if medium in PREPRINTED_MEDIUMS and not (self.nro_ctrl or "").strip():
+            raise UserError(
+                self.env._(
+                    "%s is issued on a pre-printed form: type its Control "
+                    "Number before posting.",
+                    self.display_name,
+                )
+            )
+
+    def _l10n_ve_assign_control_data(self, control_number, control_date=None):
+        """Receive the control data assigned after posting.
+
+        Entry point for digital printing house and fiscal machine
+        connectors. The number is written once on a posted document and is
+        never replaced; repeating the same number is a no-op so connectors
+        can retry. The uniqueness constraint still applies.
+        """
+        self.ensure_one()
+        control_number = (control_number or "").strip()
+        if not control_number:
+            raise UserError(self.env._("A Control Number is required."))
+        if (
+            self.state != "posted"
+            or not self._l10n_ve_is_emission_document()
+            or self.l10n_ve_emission_medium not in POST_ASSIGNED_MEDIUMS
+        ):
+            raise UserError(
+                self.env._(
+                    "Control data can only be received on posted Venezuelan "
+                    "customer documents issued by a digital printing house "
+                    "or a fiscal machine."
+                )
+            )
+        if self.nro_ctrl == control_number:
+            # Connector retry: already received, nothing to write.
+            return True
+        if self.nro_ctrl:
+            raise UserError(
+                self.env._(
+                    "%(document)s already has Control Number %(number)s.",
+                    document=self.display_name,
+                    number=self.nro_ctrl,
+                )
+            )
+        self.with_context(l10n_ve_allow_nro_ctrl=True).write(
+            {
+                "nro_ctrl": control_number,
+                "l10n_ve_control_date": control_date or fields.Date.context_today(self),
+            }
+        )
+        return True
 
     def _l10n_ve_taxable_untaxed(self):
         """Untaxed amount excluding IGTF expense lines on vendor bills."""
@@ -182,6 +285,7 @@ class AccountMove(models.Model):
             if not move._l10n_ve_is_fiscal_invoice():
                 continue
             move._l10n_ve_validate_invoice()
+            move._l10n_ve_check_emission_medium()
             if not move.date_document:
                 move.date_document = move.invoice_date or fields.Date.context_today(
                     self
@@ -200,7 +304,13 @@ class AccountMove(models.Model):
         return super()._post(soft=soft)
 
     def write(self, vals):
-        locked_fields = {"nro_ctrl", "date_document", "supplier_invoice_number"}
+        locked_fields = {
+            "nro_ctrl",
+            "date_document",
+            "supplier_invoice_number",
+            "l10n_ve_control_date",
+            "l10n_ve_emission_medium",
+        }
         if locked_fields & set(vals) and not self.env.context.get(
             "l10n_ve_allow_nro_ctrl"
         ):

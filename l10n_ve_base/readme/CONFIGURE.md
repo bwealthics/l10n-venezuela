@@ -34,3 +34,6 @@
     bank account, choosing a VE bank prefixes the number with the
     4-digit code if it is empty; set checking / savings / trust as
     needed.
+10. On each Venezuelan sales journal, set the **Emission Medium**: free
+    form or contingency (pre-printed paper), fiscal machine, or digital
+    printing house.

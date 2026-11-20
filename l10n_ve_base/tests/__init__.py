@@ -3,6 +3,7 @@
 
 from . import test_rif_and_ut
 from . import test_invoice_post
+from . import test_emission_medium
 from . import test_tax_appl_type
 from . import test_identification_type
 from . import test_banks_and_responsibility

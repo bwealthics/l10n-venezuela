@@ -42,6 +42,7 @@
         "views/res_partner_bank_views.xml",
         "views/res_company_views.xml",
         "views/account_tax_views.xml",
+        "views/account_journal_views.xml",
         "views/account_move_views.xml",
         "views/wizards_views.xml",
         "views/menu_views.xml",
