@@ -562,7 +562,16 @@ class FiscalBook(models.Model):
     def action_export_xlsx(self):
         self.ensure_one()
         output = io.BytesIO()
-        workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+        # Partner names or document numbers may start with = + - @: write them
+        # as text, never as formulas or links (spreadsheet formula injection).
+        workbook = xlsxwriter.Workbook(
+            output,
+            {
+                "in_memory": True,
+                "strings_to_formulas": False,
+                "strings_to_urls": False,
+            },
+        )
         sheet = workbook.add_worksheet(self.env._("Fiscal Book"))
         header_fmt = workbook.add_format(
             {"bold": True, "bg_color": "#D9E1F2", "border": 1}

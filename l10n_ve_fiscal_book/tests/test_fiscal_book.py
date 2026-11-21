@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl.html).
 
 import base64
+import io
 
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
@@ -440,3 +441,33 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
         )
         book.with_user(manager).with_context(l10n_ve_unlock_book=True).action_draft()
         self.assertEqual(book.state, "draft")
+
+    def test_export_xlsx_does_not_write_formulas(self):
+        try:
+            import openpyxl
+        except ImportError:
+            self.skipTest("openpyxl is not installed.")
+        self.supplier.name = '=HYPERLINK("http://example.com","x")'
+        self._create_vendor_bill(
+            self.supplier,
+            amount=1000.0,
+            taxes=self.tax,
+            nro_ctrl="00-40000013",
+            ref="=1+1",
+        )
+        book = self._create_book()
+        action = book.action_export_xlsx()
+        attachment_id = int(action["url"].split("/web/content/")[1].split("?")[0])
+        attachment = self.env["ir.attachment"].browse(attachment_id)
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(base64.b64decode(attachment.datas))
+        )
+        sheet = workbook.active
+        values = {}
+        for row in sheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.startswith("="):
+                    values[cell.value] = cell
+        self.assertEqual(len(values), 2, "Hostile strings must stay in the sheet.")
+        for cell in values.values():
+            self.assertNotEqual(cell.data_type, "f")
