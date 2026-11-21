@@ -4,7 +4,7 @@
 import base64
 
 from odoo import Command
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import tagged
 
 from odoo.addons.account.tests.common import AccountTestInvoicingCommon
@@ -345,3 +345,58 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
                     "date_end": "2025-10-15",
                 }
             )
+
+    def test_multicompany_record_rules(self):
+        other_company = self.env["res.company"].create(
+            {"name": "Other Company", "country_id": self.env.ref("base.us").id}
+        )
+        other_book = self.env["fiscal.book"].create(
+            {
+                "name": "Libro otra compania",
+                "type": "purchase",
+                "date_start": "2025-09-01",
+                "date_end": "2025-09-30",
+                "company_id": other_company.id,
+            }
+        )
+        move = self._create_vendor_bill(
+            self.supplier,
+            amount=100.0,
+            taxes=self.tax,
+            nro_ctrl="00-40000011",
+            ref="FAC-RULE-1",
+        )
+        line = self.env["fiscal.book.line"].create(
+            {"fb_id": other_book.id, "move_id": move.id}
+        )
+        tax_line = self.env["fiscal.book.taxes"].create(
+            {"fb_id": other_book.id, "appl_type": "general"}
+        )
+        own_book = self._create_book()
+        user = self.env["res.users"].create(
+            {
+                "name": "Book user",
+                "login": "book_user_company_a",
+                "company_id": self.company.id,
+                "company_ids": [Command.set(self.company.ids)],
+                "group_ids": [
+                    Command.set(self.env.ref("account.group_account_invoice").ids)
+                ],
+            }
+        )
+        books = self.env["fiscal.book"].with_user(user)
+        self.assertEqual(
+            books.search([("id", "in", (own_book | other_book).ids)]), own_book
+        )
+        self.assertFalse(
+            self.env["fiscal.book.line"].with_user(user).search([("id", "=", line.id)])
+        )
+        self.assertFalse(
+            self.env["fiscal.book.taxes"]
+            .with_user(user)
+            .search([("id", "=", tax_line.id)])
+        )
+        with self.assertRaises(AccessError):
+            other_book.with_user(user).read(["name"])
+        with self.assertRaises(AccessError):
+            other_book.with_user(user).write({"name": "Hijacked"})

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Copyright 2026 BWEALTHICS LLC -->
+<odoo noupdate="1">
+    <record id="fiscal_book_comp_rule" model="ir.rule">
+        <field name="name">Fiscal Book multi-company</field>
+        <field name="model_id" ref="model_fiscal_book" />
+        <field name="global" eval="True" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="fiscal_book_line_comp_rule" model="ir.rule">
+        <field name="name">Fiscal Book Line multi-company</field>
+        <field name="model_id" ref="model_fiscal_book_line" />
+        <field name="global" eval="True" />
+        <field name="domain_force">[('fb_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="fiscal_book_taxes_comp_rule" model="ir.rule">
+        <field name="name">Fiscal Book Taxes multi-company</field>
+        <field name="model_id" ref="model_fiscal_book_taxes" />
+        <field name="global" eval="True" />
+        <field name="domain_force">[('fb_id.company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

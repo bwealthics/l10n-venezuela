@@ -18,6 +18,7 @@
     ],
     "external_dependencies": {"python": ["xlsxwriter"]},
     "data": [
+        "security/security.xml",
         "security/ir.model.access.csv",
         "reports/report_fiscal_book.xml",
         "wizards/wizard_fiscal_book_views.xml",
