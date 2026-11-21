@@ -414,7 +414,15 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
         )
 
     def test_reopen_period_requires_account_manager(self):
+        self._create_vendor_bill(
+            self.supplier,
+            amount=100.0,
+            taxes=self.tax,
+            nro_ctrl="00-40000014",
+            ref="FAC-LOCK-1",
+        )
         book = self._create_book()
+        self.assertTrue(book.line_ids)
         book.action_confirm()
         book.action_done()
         invoicer = self._create_book_user(
@@ -427,6 +435,22 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
             ).action_draft()
         with self.assertRaises(AccessError):
             book.with_user(invoicer).action_draft()
+        # Neither does a direct write over RPC, on the book or its lines.
+        with self.assertRaises(AccessError):
+            book.with_user(invoicer).write({"state": "draft"})
+        with self.assertRaises(AccessError):
+            book.line_ids.with_user(invoicer).write({"rank": 99})
+        other_book = self._create_book(start="2025-10-01", end="2025-10-31")
+        move = book.line_ids[:1].move_id
+        stray = self.env["fiscal.book.line"].create(
+            {"fb_id": other_book.id, "move_id": move.id}
+        )
+        with self.assertRaises(AccessError):
+            stray.with_user(invoicer).write({"fb_id": book.id})
+        with self.assertRaises(AccessError):
+            self.env["fiscal.book.line"].with_user(invoicer).create(
+                {"fb_id": book.id, "move_id": move.id}
+            )
         self.assertEqual(book.state, "done")
         with self.assertRaises(UserError):
             self._create_vendor_bill(

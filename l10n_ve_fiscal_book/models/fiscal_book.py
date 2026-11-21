@@ -526,6 +526,20 @@ class FiscalBook(models.Model):
         self._l10n_ve_refresh_tax_summary()
         return True
 
+    def _l10n_ve_check_locked_edit(self):
+        """Posted books lock the period: only accounting managers may change
+        them or their lines, whatever the entry point (button or RPC)."""
+        if self.env.su or self.env.user.has_group("account.group_account_manager"):
+            return
+        if any(rec.state == "done" for rec in self):
+            raise AccessError(
+                self.env._("Only accounting managers can modify a posted fiscal book.")
+            )
+
+    def write(self, vals):
+        self._l10n_ve_check_locked_edit()
+        return super().write(vals)
+
     def action_confirm(self):
         for rec in self:
             if not rec.line_ids:

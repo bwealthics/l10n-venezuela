@@ -1,7 +1,7 @@
 # Copyright 2011-2016 Vauxoo
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl.html).
 
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class FiscalBookLine(models.Model):
@@ -57,3 +57,23 @@ class FiscalBookLine(models.Model):
     tax_additional = fields.Float()
     vat_withheld = fields.Float(string="VAT Withheld")
     voucher_number = fields.Char(string="Withholding Voucher")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        books = self.env["fiscal.book"].browse(
+            [vals["fb_id"] for vals in vals_list if vals.get("fb_id")]
+        )
+        books._l10n_ve_check_locked_edit()
+        return super().create(vals_list)
+
+    def write(self, vals):
+        books = self.fb_id
+        if vals.get("fb_id"):
+            # Moving a row into a posted book is also a change to that book.
+            books |= self.env["fiscal.book"].browse(vals["fb_id"])
+        books._l10n_ve_check_locked_edit()
+        return super().write(vals)
+
+    def unlink(self):
+        self.fb_id._l10n_ve_check_locked_edit()
+        return super().unlink()
