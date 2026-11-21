@@ -8,7 +8,7 @@ import re
 import xlsxwriter
 
 from odoo import Command, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 MONTHS_ES = (
     "Enero",
@@ -537,6 +537,12 @@ class FiscalBook(models.Model):
 
     def action_draft(self):
         locked = self.filtered(lambda rec: rec.state == "done")
+        if locked and not self.env.user.has_group("account.group_account_manager"):
+            # The context key is client controlled (any RPC caller can send
+            # it), so it never replaces the group check.
+            raise AccessError(
+                self.env._("Only accounting managers can reopen a posted fiscal book.")
+            )
         if locked and not self.env.context.get("l10n_ve_unlock_book"):
             raise UserError(
                 self.env._(

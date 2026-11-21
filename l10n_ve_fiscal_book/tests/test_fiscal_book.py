@@ -400,3 +400,43 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
             other_book.with_user(user).read(["name"])
         with self.assertRaises(AccessError):
             other_book.with_user(user).write({"name": "Hijacked"})
+
+    def _create_book_user(self, login, group_xmlid):
+        return self.env["res.users"].create(
+            {
+                "name": login,
+                "login": login,
+                "company_id": self.company.id,
+                "company_ids": [Command.set(self.company.ids)],
+                "group_ids": [Command.set(self.env.ref(group_xmlid).ids)],
+            }
+        )
+
+    def test_reopen_period_requires_account_manager(self):
+        book = self._create_book()
+        book.action_confirm()
+        book.action_done()
+        invoicer = self._create_book_user(
+            "book_invoicer", "account.group_account_invoice"
+        )
+        # The context key alone must not unlock the period for a non-manager.
+        with self.assertRaises(AccessError):
+            book.with_user(invoicer).with_context(
+                l10n_ve_unlock_book=True
+            ).action_draft()
+        with self.assertRaises(AccessError):
+            book.with_user(invoicer).action_draft()
+        self.assertEqual(book.state, "done")
+        with self.assertRaises(UserError):
+            self._create_vendor_bill(
+                self.supplier,
+                amount=100.0,
+                taxes=self.tax,
+                nro_ctrl="00-40000012",
+                ref="FAC-LOCK-2",
+            )
+        manager = self._create_book_user(
+            "book_manager", "account.group_account_manager"
+        )
+        book.with_user(manager).with_context(l10n_ve_unlock_book=True).action_draft()
+        self.assertEqual(book.state, "draft")
