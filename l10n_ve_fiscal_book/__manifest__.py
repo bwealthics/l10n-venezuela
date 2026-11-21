@@ -3,22 +3,21 @@
 
 {
     "name": "Fiscal Report For Venezuela (Libros Fiscales)",
-    "version": "17.0.1.3.1",
+    "version": "19.0.1.0.0",
     "category": "Localization",
-    "author": "Vauxoo",
+    "author": "Vauxoo, Odoo Community Association (OCA)",
     "maintainer": "Guillermo Montoya",
     "maintainers": [
         "guillermm",
     ],
-    "website": "https://www.odoo.com",
+    "website": "https://github.com/OCA/l10n-venezuela",
     "license": "AGPL-3",
     "depends": [
         "account",
-        "l10n_ve_fiscal_requirements",
-        "l10n_ve_withholding_iva",
+        "l10n_ve_base",
     ],
-        "data": [
-        "security/security.xml",
+    "external_dependencies": {"python": ["xlsxwriter"]},
+    "data": [
         "security/ir.model.access.csv",
         "reports/report_fiscal_book.xml",
         "wizards/wizard_fiscal_book_views.xml",

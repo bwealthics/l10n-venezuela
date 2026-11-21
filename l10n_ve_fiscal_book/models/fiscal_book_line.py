@@ -16,11 +16,13 @@ class FiscalBookLine(models.Model):
         required=True,
     )
     rank = fields.Integer(string="Operation N°", default=1)
-    move_id = fields.Many2one(comodel_name="account.move", string="Invoice / Move", required=True)
-    partner_id = fields.Many2one(comodel_name="res.partner", string="Partner")
+    move_id = fields.Many2one(
+        comodel_name="account.move", string="Invoice / Move", required=True
+    )
+    partner_id = fields.Many2one(comodel_name="res.partner")
     partner_vat = fields.Char(string="RIF / CI")
-    doc_date = fields.Date(string="Doc Date")
-    invoice_number = fields.Char(string="Invoice Number")
+    doc_date = fields.Date()
+    invoice_number = fields.Char()
     nro_ctrl = fields.Char(string="Control Number")
     affected_number = fields.Char(
         string="Affected Document",
@@ -34,24 +36,24 @@ class FiscalBookLine(models.Model):
             ("04", "VAT Adjustment"),
             ("05", "Import (F86)"),
         ],
-        string="Doc Type",
         default="01",
     )
-    expediente = fields.Char(string="Expediente")
+    expediente = fields.Char()
     customs_number = fields.Char(string="Form 86")
     is_adjustment = fields.Boolean(string="VAT Adjustment")
     withholding_only = fields.Boolean(
         string="Withholding in this period",
-        help="Invoice belongs to another month; only the VAT withholding of this period is shown.",
+        help="Invoice belongs to another month; only the VAT withholding of "
+        "this period is shown.",
     )
-    total_amount = fields.Float(string="Total Amount")
-    exempt_amount = fields.Float(string="Exempt Amount")
+    total_amount = fields.Float()
+    exempt_amount = fields.Float()
     sdcf_amount = fields.Float(string="SDCF Amount")
-    base_general = fields.Float(string="Base General")
-    tax_general = fields.Float(string="Tax General")
-    base_reduced = fields.Float(string="Base Reduced")
-    tax_reduced = fields.Float(string="Tax Reduced")
-    base_additional = fields.Float(string="Base Additional")
-    tax_additional = fields.Float(string="Tax Additional")
+    base_general = fields.Float()
+    tax_general = fields.Float()
+    base_reduced = fields.Float()
+    tax_reduced = fields.Float()
+    base_additional = fields.Float()
+    tax_additional = fields.Float()
     vat_withheld = fields.Float(string="VAT Withheld")
     voucher_number = fields.Char(string="Withholding Voucher")

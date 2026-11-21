@@ -3,35 +3,45 @@
 
 import base64
 
-from odoo.addons.account.tests.common import AccountTestInvoicingCommon
-from odoo.addons.l10n_ve_fiscal_requirements.tests.common import L10nVeSetupMixin
+from odoo import Command
 from odoo.exceptions import UserError, ValidationError
 from odoo.tests import tagged
+
+from odoo.addons.account.tests.common import AccountTestInvoicingCommon
+from odoo.addons.l10n_ve_base.tests.common import L10nVeSetupMixin
 
 
 @tagged("post_install", "-at_install")
 class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
     @classmethod
-    def setUpClass(cls, chart_template_ref=None):
-        super().setUpClass(chart_template_ref=chart_template_ref)
+    def setUpClass(cls):
+        super().setUpClass()
         cls._l10n_ve_setup()
         purchase_tax = cls.company_data["default_tax_purchase"]
-        tax_group = cls.env["account.tax.group"].create({
-            "name": "IVA VE book",
-            "country_id": cls.ve_country.id,
-        })
-        cls.tax = purchase_tax.copy({
-            "name": "IVA 16% book",
-            "amount": 16.0,
-        })
-        cls.tax.write({
-            "country_id": cls.ve_country.id,
-            "tax_group_id": tax_group.id,
-            "appl_type": "general",
-        })
+        tax_group = cls.env["account.tax.group"].create(
+            {
+                "name": "IVA VE book",
+                "country_id": cls.ve_country.id,
+            }
+        )
+        cls.tax = purchase_tax.copy(
+            {
+                "name": "IVA 16% book",
+                "amount": 16.0,
+            }
+        )
+        cls.tax.write(
+            {
+                "country_id": cls.ve_country.id,
+                "tax_group_id": tax_group.id,
+                "appl_type": "general",
+            }
+        )
+        # Fictitious RIF; the check digit is the SENIAT one so that base_vat
+        # accepts it.
         cls.supplier = cls._create_ve_partner(
             "Proveedor Libro",
-            "J403187649",
+            "J123456784",
             wh_iva_rate=75.0,
             wh_iva_agent=True,
         )
@@ -42,17 +52,23 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
         )
 
     def _create_book(self, book_type="purchase", start="2025-09-01", end="2025-09-30"):
-        book = self.env["fiscal.book"].create({
-            "name": "Libro %s %s" % (book_type, start),
-            "type": book_type,
-            "date_start": start,
-            "date_end": end,
-        })
+        book = self.env["fiscal.book"].create(
+            {
+                "name": f"Libro {book_type} {start}",
+                "type": book_type,
+                "date_start": start,
+                "date_end": end,
+            }
+        )
         book.action_update_book()
         return book
 
+    def _skip_without_wh_iva(self):
+        if not self.env["fiscal.book"]._l10n_ve_wh_iva_installed():
+            self.skipTest("No VAT withholding module installed.")
+
     def test_purchase_book_classifies_general_aliquot(self):
-        bill = self._create_vendor_bill(
+        self._create_vendor_bill(
             self.supplier,
             amount=1000.0,
             taxes=self.tax,
@@ -77,22 +93,30 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
             nro_ctrl="00-40000002",
             ref="FAC-LIB-2",
         )
-        refund = self.env["account.move"].create({
-            "move_type": "in_refund",
-            "partner_id": self.supplier.id,
-            "invoice_date": "2025-09-10",
-            "invoice_date_due": "2025-09-15",
-            "nro_ctrl": "00-40000003",
-            "supplier_invoice_number": "NC-LIB-2",
-            "reversed_entry_id": bill.id,
-            "invoice_line_ids": [(0, 0, {
-                "name": "Devolución",
-                "quantity": 1,
-                "price_unit": 1000.0,
-                "account_id": self.company_data["default_account_expense"].id,
-                "tax_ids": [(6, 0, self.tax.ids)],
-            })],
-        })
+        refund = self.env["account.move"].create(
+            {
+                "move_type": "in_refund",
+                "partner_id": self.supplier.id,
+                "invoice_date": "2025-09-10",
+                "invoice_date_due": "2025-09-15",
+                "nro_ctrl": "00-40000003",
+                "supplier_invoice_number": "NC-LIB-2",
+                "reversed_entry_id": bill.id,
+                "invoice_line_ids": [
+                    Command.create(
+                        {
+                            "name": "Devolución",
+                            "quantity": 1,
+                            "price_unit": 1000.0,
+                            "account_id": self.company_data[
+                                "default_account_expense"
+                            ].id,
+                            "tax_ids": [Command.set(self.tax.ids)],
+                        }
+                    )
+                ],
+            }
+        )
         refund.action_post()
         book = self._create_book()
         nc = book.line_ids.filtered(lambda rec: rec.move_id == refund)
@@ -107,10 +131,14 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
         if date:
             voucher.write({"date": date})
         voucher.action_confirm()
-        self.assertTrue(voucher.total_ret_amount, "VAT withholding voucher must have a retained amount")
+        self.assertTrue(
+            voucher.total_ret_amount,
+            "VAT withholding voucher must have a retained amount",
+        )
         return voucher
 
     def test_withholding_follows_voucher_period(self):
+        self._skip_without_wh_iva()
         bill = self._create_vendor_bill(
             self.supplier,
             amount=1000.0,
@@ -133,6 +161,7 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
         )
 
     def test_same_period_withholding_stays_on_invoice_line(self):
+        self._skip_without_wh_iva()
         bill = self._create_vendor_bill(
             self.supplier,
             amount=1000.0,
@@ -151,35 +180,67 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
             places=2,
         )
 
+    def test_book_without_withholding_module(self):
+        """The book is generated with empty withholding columns."""
+        if self.env["fiscal.book"]._l10n_ve_wh_iva_installed():
+            self.skipTest("A VAT withholding module is installed.")
+        self._create_vendor_bill(
+            self.supplier,
+            amount=1000.0,
+            taxes=self.tax,
+            nro_ctrl="00-40000008",
+            ref="FAC-LIB-5",
+        )
+        book = self._create_book()
+        self.assertFalse(book._l10n_ve_period_wh_vouchers(["in_invoice"]))
+        self.assertEqual(len(book.line_ids), 1)
+        self.assertFalse(book.line_ids.withholding_only)
+        self.assertFalse(book.line_ids.voucher_number)
+        self.assertAlmostEqual(book.total_vat_withheld, 0.0, places=2)
+
     def test_sale_book_classifies_general_aliquot(self):
-        sale_tax = self.company_data["default_tax_sale"].copy({
-            "name": "IVA 16% sale book",
-            "amount": 16.0,
-        })
-        tax_group = self.env["account.tax.group"].create({
-            "name": "IVA VE sale book",
-            "country_id": self.ve_country.id,
-        })
-        sale_tax.write({
-            "country_id": self.ve_country.id,
-            "tax_group_id": tax_group.id,
-            "appl_type": "general",
-        })
-        customer = self._create_ve_partner("Cliente Libro", "V123456781")
-        invoice = self.env["account.move"].create({
-            "move_type": "out_invoice",
-            "partner_id": customer.id,
-            "invoice_date": "2025-09-01",
-            "invoice_date_due": "2025-09-15",
-            "nro_ctrl": "00-50000001",
-            "invoice_line_ids": [(0, 0, {
-                "name": "Servicio",
-                "quantity": 1,
-                "price_unit": 1000.0,
-                "account_id": self.company_data["default_account_revenue"].id,
-                "tax_ids": [(6, 0, sale_tax.ids)],
-            })],
-        })
+        sale_tax = self.company_data["default_tax_sale"].copy(
+            {
+                "name": "IVA 16% sale book",
+                "amount": 16.0,
+            }
+        )
+        tax_group = self.env["account.tax.group"].create(
+            {
+                "name": "IVA VE sale book",
+                "country_id": self.ve_country.id,
+            }
+        )
+        sale_tax.write(
+            {
+                "country_id": self.ve_country.id,
+                "tax_group_id": tax_group.id,
+                "appl_type": "general",
+            }
+        )
+        customer = self._create_ve_partner("Cliente Libro", "V987654321")
+        invoice = self.env["account.move"].create(
+            {
+                "move_type": "out_invoice",
+                "partner_id": customer.id,
+                "invoice_date": "2025-09-01",
+                "invoice_date_due": "2025-09-15",
+                "nro_ctrl": "00-50000001",
+                "invoice_line_ids": [
+                    Command.create(
+                        {
+                            "name": "Servicio",
+                            "quantity": 1,
+                            "price_unit": 1000.0,
+                            "account_id": self.company_data[
+                                "default_account_revenue"
+                            ].id,
+                            "tax_ids": [Command.set(sale_tax.ids)],
+                        }
+                    )
+                ],
+            }
+        )
         invoice.action_post()
         book = self._create_book(book_type="sale")
         self.assertEqual(len(book.line_ids), 1)
@@ -189,11 +250,17 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
 
     def test_wizard_reuses_draft_book(self):
         first = self._create_book()
-        action = self.env["wizard.fiscal.book"].create({
-            "type": "purchase",
-            "date_start": "2025-09-01",
-            "date_end": "2025-09-30",
-        }).action_create_book()
+        action = (
+            self.env["wizard.fiscal.book"]
+            .create(
+                {
+                    "type": "purchase",
+                    "date_start": "2025-09-01",
+                    "date_end": "2025-09-30",
+                }
+            )
+            .action_create_book()
+        )
         self.assertEqual(action["res_id"], first.id)
 
     def test_posted_book_locks_period(self):
@@ -218,6 +285,38 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
         )
         self.assertEqual(move.state, "posted")
 
+    def test_lock_only_applies_to_venezuelan_companies(self):
+        move = self.env["account.move"].create(
+            {
+                "move_type": "in_invoice",
+                "partner_id": self.supplier.id,
+                "invoice_date": "2025-09-01",
+                "invoice_date_due": "2025-09-15",
+                "nro_ctrl": "00-40000009",
+                "supplier_invoice_number": "FAC-NO-VE",
+                "invoice_line_ids": [
+                    Command.create(
+                        {
+                            "name": "Servicio",
+                            "quantity": 1,
+                            "price_unit": 100.0,
+                            "account_id": self.company_data[
+                                "default_account_expense"
+                            ].id,
+                        }
+                    )
+                ],
+            }
+        )
+        book = self._create_book()
+        book.action_confirm()
+        book.action_done()
+        with self.assertRaises(UserError):
+            move.action_post()
+        self.company.account_fiscal_country_id = self.env.ref("base.us")
+        move.action_post()
+        self.assertEqual(move.state, "posted")
+
     def test_export_xlsx_has_content(self):
         self._create_vendor_bill(
             self.supplier,
@@ -238,9 +337,11 @@ class TestFiscalBook(L10nVeSetupMixin, AccountTestInvoicingCommon):
     def test_overlapping_books_are_rejected(self):
         self._create_book()
         with self.assertRaises(ValidationError):
-            self.env["fiscal.book"].create({
-                "name": "Duplicado",
-                "type": "purchase",
-                "date_start": "2025-09-15",
-                "date_end": "2025-10-15",
-            })
+            self.env["fiscal.book"].create(
+                {
+                    "name": "Duplicado",
+                    "type": "purchase",
+                    "date_start": "2025-09-15",
+                    "date_end": "2025-10-15",
+                }
+            )

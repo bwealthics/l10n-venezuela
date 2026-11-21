@@ -5,13 +5,24 @@ import base64
 import io
 import re
 
-from odoo import _, api, fields, models
+import xlsxwriter
+
+from odoo import Command, api, fields, models
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools.misc import xlsxwriter
 
 MONTHS_ES = (
-    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
 )
 
 
@@ -35,15 +46,17 @@ class FiscalBook(models.Model):
             ("done", "Posted"),
             ("cancel", "Cancelled"),
         ],
-        string="State",
         default="draft",
         copy=False,
     )
-    date_start = fields.Date(string="Start Date", required=True, default=fields.Date.context_today)
-    date_end = fields.Date(string="End Date", required=True, default=fields.Date.context_today)
+    date_start = fields.Date(
+        string="Start Date", required=True, default=fields.Date.context_today
+    )
+    date_end = fields.Date(
+        string="End Date", required=True, default=fields.Date.context_today
+    )
     company_id = fields.Many2one(
         comodel_name="res.company",
-        string="Company",
         required=True,
         default=lambda self: self.env.company,
     )
@@ -64,16 +77,34 @@ class FiscalBook(models.Model):
         inverse_name="fb_id",
         string="Tax Summary",
     )
-    total_amount = fields.Float(string="Total Operations", compute="_compute_book_totals", store=True)
-    total_exempt = fields.Float(string="Total Exempt", compute="_compute_book_totals", store=True)
-    total_sdcf = fields.Float(string="Total SDCF", compute="_compute_book_totals", store=True)
-    total_base_general = fields.Float(string="Base General (16%)", compute="_compute_book_totals", store=True)
-    total_tax_general = fields.Float(string="Tax General (16%)", compute="_compute_book_totals", store=True)
-    total_base_reduced = fields.Float(string="Base Reduced (8%)", compute="_compute_book_totals", store=True)
-    total_tax_reduced = fields.Float(string="Tax Reduced (8%)", compute="_compute_book_totals", store=True)
-    total_base_additional = fields.Float(string="Base Additional (31%)", compute="_compute_book_totals", store=True)
-    total_tax_additional = fields.Float(string="Tax Additional (31%)", compute="_compute_book_totals", store=True)
-    total_vat_withheld = fields.Float(string="Total VAT Withheld", compute="_compute_book_totals", store=True)
+    total_amount = fields.Float(
+        string="Total Operations", compute="_compute_book_totals", store=True
+    )
+    total_exempt = fields.Float(compute="_compute_book_totals", store=True)
+    total_sdcf = fields.Float(
+        string="Total SDCF", compute="_compute_book_totals", store=True
+    )
+    total_base_general = fields.Float(
+        string="Base General (16%)", compute="_compute_book_totals", store=True
+    )
+    total_tax_general = fields.Float(
+        string="Tax General (16%)", compute="_compute_book_totals", store=True
+    )
+    total_base_reduced = fields.Float(
+        string="Base Reduced (8%)", compute="_compute_book_totals", store=True
+    )
+    total_tax_reduced = fields.Float(
+        string="Tax Reduced (8%)", compute="_compute_book_totals", store=True
+    )
+    total_base_additional = fields.Float(
+        string="Base Additional (31%)", compute="_compute_book_totals", store=True
+    )
+    total_tax_additional = fields.Float(
+        string="Tax Additional (31%)", compute="_compute_book_totals", store=True
+    )
+    total_vat_withheld = fields.Float(
+        string="Total VAT Withheld", compute="_compute_book_totals", store=True
+    )
 
     @api.depends("type", "company_id.printer_fiscal")
     def _compute_article_number(self):
@@ -89,9 +120,9 @@ class FiscalBook(models.Model):
     def _compute_period_label(self):
         for rec in self:
             if rec.date_start:
-                rec.period_label = "Correspondiente al mes de %s del año %s" % (
-                    MONTHS_ES[rec.date_start.month - 1],
-                    rec.date_start.year,
+                month = MONTHS_ES[rec.date_start.month - 1]
+                rec.period_label = (
+                    f"Correspondiente al mes de {month} del año {rec.date_start.year}"
                 )
             else:
                 rec.period_label = ""
@@ -125,25 +156,34 @@ class FiscalBook(models.Model):
     def _check_dates(self):
         for rec in self:
             if rec.date_start and rec.date_end and rec.date_start > rec.date_end:
-                raise ValidationError(_("The start date must be before the end date."))
+                raise ValidationError(
+                    self.env._("The start date must be before the end date.")
+                )
 
     @api.constrains("date_start", "date_end", "type", "company_id", "state")
     def _check_unique_period(self):
         for rec in self:
             if rec.state == "cancel":
                 continue
-            overlap = self.search([
-                ("id", "!=", rec.id),
-                ("company_id", "=", rec.company_id.id),
-                ("type", "=", rec.type),
-                ("state", "!=", "cancel"),
-                ("date_start", "<=", rec.date_end),
-                ("date_end", ">=", rec.date_start),
-            ], limit=1)
+            overlap = self.search(
+                [
+                    ("id", "!=", rec.id),
+                    ("company_id", "=", rec.company_id.id),
+                    ("type", "=", rec.type),
+                    ("state", "!=", "cancel"),
+                    ("date_start", "<=", rec.date_end),
+                    ("date_end", ">=", rec.date_start),
+                ],
+                limit=1,
+            )
             if overlap:
                 raise ValidationError(
-                    _("There is already a %s fiscal book (%s) covering this period.")
-                    % (dict(self._fields["type"].selection).get(rec.type), overlap.name)
+                    self.env._(
+                        "There is already a %(type)s fiscal book (%(book)s) "
+                        "covering this period.",
+                        type=dict(self._fields["type"].selection).get(rec.type),
+                        book=overlap.name,
+                    )
                 )
 
     def _l10n_ve_doc_date(self, move):
@@ -187,7 +227,10 @@ class FiscalBook(models.Model):
         date = self._l10n_ve_doc_date(move)
         company = move.company_id
         company_cur = company.currency_id
-        to_ves_company = lambda amount: self._l10n_ve_to_ves(amount, company_cur, date, company) * sign
+
+        def to_ves_company(amount):
+            return self._l10n_ve_to_ves(amount, company_cur, date, company) * sign
+
         values = {
             "total_amount": to_ves_company(abs(move.amount_total_signed)),
             "exempt_amount": 0.0,
@@ -202,7 +245,9 @@ class FiscalBook(models.Model):
         for line in move.line_ids.filtered(lambda rec: rec.tax_line_id):
             tax = line.tax_line_id
             t_amt = to_ves_company(abs(line.balance))
-            t_base = to_ves_company(line.tax_base_amount or 0.0)
+            # tax_base_amount is signed like the balance on Odoo 19 (negative
+            # on sales and refunds); the sign comes from the document type.
+            t_base = to_ves_company(abs(line.tax_base_amount or 0.0))
             appl = tax.appl_type
             if appl == "general" or (not appl and abs(tax.amount - 16) < 0.1):
                 values["base_general"] += t_base
@@ -218,7 +263,8 @@ class FiscalBook(models.Model):
             elif appl == "exento" or not tax.amount:
                 values["exempt_amount"] += t_base
         igtf_lines = move.invoice_line_ids.filtered(
-            lambda rec: rec.display_type == "product" and getattr(rec, "l10n_ve_igtf_line", False)
+            lambda rec: rec.display_type == "product"
+            and getattr(rec, "l10n_ve_igtf_line", False)
         )
         igtf_amount = sum(abs(line.balance) for line in igtf_lines)
         if igtf_amount:
@@ -236,61 +282,112 @@ class FiscalBook(models.Model):
 
     def _l10n_ve_line_vals(self, move, rank, withholding_only=False):
         self.ensure_one()
-        values = self._l10n_ve_classify_move(move) if not withholding_only else {
-            "total_amount": 0.0,
-            "exempt_amount": 0.0,
-            "sdcf_amount": 0.0,
-            "base_general": 0.0,
-            "tax_general": 0.0,
-            "base_reduced": 0.0,
-            "tax_reduced": 0.0,
-            "base_additional": 0.0,
-            "tax_additional": 0.0,
-        }
-        values.update({
-            "rank": rank,
-            "move_id": move.id,
-            "partner_id": move.partner_id.id,
-            "partner_vat": move.partner_id.vat or "",
-            "doc_date": self._l10n_ve_doc_date(move),
-            "invoice_number": self._l10n_ve_invoice_number(move),
-            "nro_ctrl": move.nro_ctrl or "",
-            "affected_number": self._l10n_ve_affected_number(move),
-            "doc_type": self._l10n_ve_doc_type(move),
-            "withholding_only": withholding_only,
-            "is_adjustment": False,
-            "expediente": "",
-            "customs_number": "",
-            "vat_withheld": 0.0,
-            "voucher_number": "",
-        })
-        declaration = move.customs_declaration_id if "customs_declaration_id" in move._fields else False
+        values = (
+            self._l10n_ve_classify_move(move)
+            if not withholding_only
+            else {
+                "total_amount": 0.0,
+                "exempt_amount": 0.0,
+                "sdcf_amount": 0.0,
+                "base_general": 0.0,
+                "tax_general": 0.0,
+                "base_reduced": 0.0,
+                "tax_reduced": 0.0,
+                "base_additional": 0.0,
+                "tax_additional": 0.0,
+            }
+        )
+        values.update(
+            {
+                "rank": rank,
+                "move_id": move.id,
+                "partner_id": move.partner_id.id,
+                "partner_vat": move.partner_id.vat or "",
+                "doc_date": self._l10n_ve_doc_date(move),
+                "invoice_number": self._l10n_ve_invoice_number(move),
+                "nro_ctrl": move.nro_ctrl or "",
+                "affected_number": self._l10n_ve_affected_number(move),
+                "doc_type": self._l10n_ve_doc_type(move),
+                "withholding_only": withholding_only,
+                "is_adjustment": False,
+                "expediente": "",
+                "customs_number": "",
+                "vat_withheld": 0.0,
+                "voucher_number": "",
+            }
+        )
+        declaration = (
+            move.customs_declaration_id
+            if "customs_declaration_id" in move._fields
+            else False
+        )
         if declaration:
             values["expediente"] = declaration.expediente or declaration.name or ""
             values["customs_number"] = declaration.name or ""
         return values
 
+    # VAT withholding integration points. The withholding module is optional:
+    # without it these helpers return nothing and the vat_withheld /
+    # voucher_number columns stay empty. A withholding module only has to
+    # provide the account.wh.iva model (or override these helpers).
+
+    def _l10n_ve_wh_iva_installed(self):
+        return "account.wh.iva" in self.env
+
+    def _l10n_ve_move_wh_voucher(self, move):
+        """Return the VAT withholding voucher linked to an invoice."""
+        if "wh_iva_id" not in move._fields:
+            return False
+        return move.wh_iva_id
+
+    def _l10n_ve_period_wh_vouchers(self, move_types):
+        """Return the VAT withholding vouchers dated in the book period."""
+        self.ensure_one()
+        if not self._l10n_ve_wh_iva_installed():
+            return []
+        return self.env["account.wh.iva"].search(
+            [
+                ("date", ">=", self.date_start),
+                ("date", "<=", self.date_end),
+                ("state", "in", ["confirmed", "done"]),
+                ("type", "in", move_types),
+                ("company_id", "=", self.company_id.id),
+            ]
+        )
+
+    def _l10n_ve_wh_voucher_moves(self, voucher):
+        """Return the invoices withheld by a voucher."""
+        return voucher.line_ids.move_id
+
+    def _l10n_ve_wh_voucher_amount(self, voucher, move):
+        """Return the VAT withheld on one invoice by a voucher."""
+        amount = sum(
+            voucher.line_ids.filtered(lambda line: line.move_id == move).mapped(
+                "amount_ret"
+            )
+        )
+        return amount or voucher.total_ret_amount
+
     def _l10n_ve_apply_withholding(self, values, move, voucher=None):
         if voucher is None:
-            voucher = move.wh_iva_id if "wh_iva_id" in move._fields else False
+            voucher = self._l10n_ve_move_wh_voucher(move)
         if not voucher or voucher.state not in ("confirmed", "done"):
             return values
         if not (self.date_start <= voucher.date <= self.date_end):
             return values
         sign = -1 if move.move_type in ("in_refund", "out_refund") else 1
-        amount = sum(
-            voucher.line_ids.filtered(lambda line: line.move_id == move).mapped("amount_ret")
-        )
-        if not amount:
-            amount = voucher.total_ret_amount
+        amount = self._l10n_ve_wh_voucher_amount(voucher, move)
         if not amount:
             return values
-        values["vat_withheld"] = self._l10n_ve_to_ves(
-            amount,
-            voucher.currency_id,
-            voucher.date,
-            move.company_id,
-        ) * sign
+        values["vat_withheld"] = (
+            self._l10n_ve_to_ves(
+                amount,
+                voucher.currency_id,
+                voucher.date,
+                move.company_id,
+            )
+            * sign
+        )
         values["voucher_number"] = voucher.name or ""
         return values
 
@@ -300,13 +397,15 @@ class FiscalBook(models.Model):
         lines = []
         if "vat.write.off" not in self.env:
             return lines, rank
-        writeoffs = self.env["vat.write.off"].search([
-            ("company_id", "=", self.company_id.id),
-            ("state", "=", "done"),
-            ("date", ">=", self.date_start),
-            ("date", "<=", self.date_end),
-            ("move_id", "!=", False),
-        ])
+        writeoffs = self.env["vat.write.off"].search(
+            [
+                ("company_id", "=", self.company_id.id),
+                ("state", "=", "done"),
+                ("date", ">=", self.date_start),
+                ("date", "<=", self.date_end),
+                ("move_id", "!=", False),
+            ]
+        )
 
         def _matches_book(rec):
             if rec.purchase_book_id == self or rec.sale_book_id == self:
@@ -325,32 +424,36 @@ class FiscalBook(models.Model):
                 writeoff.date,
                 writeoff.company_id,
             )
-            lines.append((0, 0, {
-                "rank": rank,
-                "move_id": writeoff.move_id.id,
-                "partner_id": writeoff.company_id.partner_id.id,
-                "partner_vat": writeoff.company_id.partner_id.vat or "",
-                "doc_date": writeoff.date,
-                "invoice_number": writeoff.name,
-                "nro_ctrl": "",
-                "affected_number": "",
-                "doc_type": "04",
-                "withholding_only": False,
-                "is_adjustment": True,
-                "expediente": "",
-                "customs_number": "",
-                "total_amount": 0.0,
-                "exempt_amount": 0.0,
-                "sdcf_amount": 0.0,
-                "base_general": 0.0,
-                "tax_general": -amount,
-                "base_reduced": 0.0,
-                "tax_reduced": 0.0,
-                "base_additional": 0.0,
-                "tax_additional": 0.0,
-                "vat_withheld": 0.0,
-                "voucher_number": "",
-            }))
+            lines.append(
+                Command.create(
+                    {
+                        "rank": rank,
+                        "move_id": writeoff.move_id.id,
+                        "partner_id": writeoff.company_id.partner_id.id,
+                        "partner_vat": writeoff.company_id.partner_id.vat or "",
+                        "doc_date": writeoff.date,
+                        "invoice_number": writeoff.name,
+                        "nro_ctrl": "",
+                        "affected_number": "",
+                        "doc_type": "04",
+                        "withholding_only": False,
+                        "is_adjustment": True,
+                        "expediente": "",
+                        "customs_number": "",
+                        "total_amount": 0.0,
+                        "exempt_amount": 0.0,
+                        "sdcf_amount": 0.0,
+                        "base_general": 0.0,
+                        "tax_general": -amount,
+                        "base_reduced": 0.0,
+                        "tax_reduced": 0.0,
+                        "base_additional": 0.0,
+                        "tax_additional": 0.0,
+                        "vat_withheld": 0.0,
+                        "voucher_number": "",
+                    }
+                )
+            )
             rank += 1
         return lines, rank
 
@@ -364,28 +467,37 @@ class FiscalBook(models.Model):
             ("reducido", self.total_base_reduced, self.total_tax_reduced),
             ("adicional", self.total_base_additional, self.total_tax_additional),
         )
-        self.write({
-            "tax_ids": [
-                (0, 0, {"appl_type": appl, "base_amount": base, "tax_amount": tax})
-                for appl, base, tax in mapping
-                if base or tax
-            ]
-        })
+        self.write(
+            {
+                "tax_ids": [
+                    Command.create(
+                        {"appl_type": appl, "base_amount": base, "tax_amount": tax}
+                    )
+                    for appl, base, tax in mapping
+                    if base or tax
+                ]
+            }
+        )
 
     def action_update_book(self):
         self.ensure_one()
         if self.state != "draft":
-            raise UserError(_("Only draft fiscal books can be regenerated."))
+            raise UserError(self.env._("Only draft fiscal books can be regenerated."))
         self.line_ids.unlink()
         move_types = self._l10n_ve_move_types()
-        all_moves = self.env["account.move"].search([
-            ("state", "=", "posted"),
-            ("move_type", "in", move_types),
-            ("company_id", "=", self.company_id.id),
-            ("sin_cred", "=", False),
-        ], order="invoice_date asc, name asc")
+        all_moves = self.env["account.move"].search(
+            [
+                ("state", "=", "posted"),
+                ("move_type", "in", move_types),
+                ("company_id", "=", self.company_id.id),
+                ("sin_cred", "=", False),
+            ],
+            order="invoice_date asc, name asc",
+        )
         period_moves = all_moves.filtered(
-            lambda move: self.date_start <= self._l10n_ve_doc_date(move) <= self.date_end
+            lambda move: self.date_start
+            <= self._l10n_ve_doc_date(move)
+            <= self.date_end
         )
         rank = 1
         lines = []
@@ -393,26 +505,18 @@ class FiscalBook(models.Model):
         for move in period_moves:
             vals = self._l10n_ve_line_vals(move, rank)
             self._l10n_ve_apply_withholding(vals, move)
-            lines.append((0, 0, vals))
+            lines.append(Command.create(vals))
             added |= move
             rank += 1
-        vouchers = self.env["account.wh.iva"].search([
-            ("date", ">=", self.date_start),
-            ("date", "<=", self.date_end),
-            ("state", "in", ["confirmed", "done"]),
-            ("type", "in", move_types),
-            ("company_id", "=", self.company_id.id),
-        ])
-        for voucher in vouchers:
-            for wh_line in voucher.line_ids:
-                move = wh_line.move_id
-                if not move or move in added or move.sin_cred or move.state != "posted":
+        for voucher in self._l10n_ve_period_wh_vouchers(move_types):
+            for move in self._l10n_ve_wh_voucher_moves(voucher):
+                if move in added or move.sin_cred or move.state != "posted":
                     continue
                 vals = self._l10n_ve_line_vals(move, rank, withholding_only=True)
                 self._l10n_ve_apply_withholding(vals, move, voucher=voucher)
                 if not vals["vat_withheld"]:
                     continue
-                lines.append((0, 0, vals))
+                lines.append(Command.create(vals))
                 added |= move
                 rank += 1
         extra, rank = self._l10n_ve_adjustment_line_vals(rank)
@@ -435,52 +539,59 @@ class FiscalBook(models.Model):
         locked = self.filtered(lambda rec: rec.state == "done")
         if locked and not self.env.context.get("l10n_ve_unlock_book"):
             raise UserError(
-                _("Posted fiscal books lock the period. Ask an accounting manager to reopen them.")
+                self.env._(
+                    "Posted fiscal books lock the period. Ask an accounting "
+                    "manager to reopen them."
+                )
             )
         self.write({"state": "draft"})
 
     def action_cancel(self):
         if self.filtered(lambda rec: rec.state == "done"):
-            raise UserError(_("A posted fiscal book cannot be cancelled. Reopen it first."))
+            raise UserError(
+                self.env._("A posted fiscal book cannot be cancelled. Reopen it first.")
+            )
         self.write({"state": "cancel"})
 
     def action_export_xlsx(self):
         self.ensure_one()
-        if not xlsxwriter:
-            raise UserError(_("xlsxwriter is not available on this Odoo installation."))
         output = io.BytesIO()
         workbook = xlsxwriter.Workbook(output, {"in_memory": True})
-        sheet = workbook.add_worksheet(_("Fiscal Book"))
-        header_fmt = workbook.add_format({"bold": True, "bg_color": "#D9E1F2", "border": 1})
+        sheet = workbook.add_worksheet(self.env._("Fiscal Book"))
+        header_fmt = workbook.add_format(
+            {"bold": True, "bg_color": "#D9E1F2", "border": 1}
+        )
         text_fmt = workbook.add_format({"border": 1})
         date_fmt = workbook.add_format({"border": 1, "num_format": "yyyy-mm-dd"})
         number_fmt = workbook.add_format({"border": 1, "num_format": "#,##0.00"})
         title_fmt = workbook.add_format({"bold": True, "font_size": 14})
 
         headers = [
-            _("N°"),
-            _("Date"),
-            _("RIF / CI"),
-            _("Partner"),
-            _("Doc Type"),
-            _("Invoice Number"),
-            _("Control Number"),
-            _("Affected Document"),
-            _("Form 86 / Expediente"),
-            _("Total Amount"),
-            _("Exempt Amount"),
-            _("SDCF Amount"),
-            _("Base General"),
-            _("Tax General"),
-            _("Base Reduced"),
-            _("Tax Reduced"),
-            _("Base Additional"),
-            _("Tax Additional"),
-            _("VAT Withheld"),
-            _("Withholding Voucher"),
+            self.env._("N°"),
+            self.env._("Date"),
+            self.env._("RIF / CI"),
+            self.env._("Partner"),
+            self.env._("Doc Type"),
+            self.env._("Invoice Number"),
+            self.env._("Control Number"),
+            self.env._("Affected Document"),
+            self.env._("Form 86 / Expediente"),
+            self.env._("Total Amount"),
+            self.env._("Exempt Amount"),
+            self.env._("SDCF Amount"),
+            self.env._("Base General"),
+            self.env._("Tax General"),
+            self.env._("Base Reduced"),
+            self.env._("Tax Reduced"),
+            self.env._("Base Additional"),
+            self.env._("Tax Additional"),
+            self.env._("VAT Withheld"),
+            self.env._("Withholding Voucher"),
         ]
-        sheet.merge_range(0, 0, 0, 6, self.name or _("Fiscal Book"), title_fmt)
-        sheet.write(1, 0, dict(self._fields["type"].selection).get(self.type, self.type))
+        sheet.merge_range(0, 0, 0, 6, self.name or self.env._("Fiscal Book"), title_fmt)
+        sheet.write(
+            1, 0, dict(self._fields["type"].selection).get(self.type, self.type)
+        )
         sheet.write(1, 1, self.period_label or "")
         sheet.write(2, 0, self.company_id.name or "")
         sheet.write(2, 1, self.company_id.partner_id.vat or "")
@@ -499,7 +610,9 @@ class FiscalBook(models.Model):
                 line.invoice_number or "",
                 line.nro_ctrl or "",
                 line.affected_number or "",
-                " / ".join(part for part in (line.customs_number, line.expediente) if part),
+                " / ".join(
+                    part for part in (line.customs_number, line.expediente) if part
+                ),
                 line.total_amount,
                 line.exempt_amount,
                 line.sdcf_amount,
@@ -521,7 +634,7 @@ class FiscalBook(models.Model):
                     sheet.write(row, col, value if value is not None else "", text_fmt)
 
         totals_row = 5 + len(self.line_ids)
-        sheet.write(totals_row, 0, _("Totals"), header_fmt)
+        sheet.write(totals_row, 0, self.env._("Totals"), header_fmt)
         totals = [
             self.total_amount,
             self.total_exempt,
@@ -538,17 +651,23 @@ class FiscalBook(models.Model):
             sheet.write_number(totals_row, 9 + offset, value or 0.0, number_fmt)
 
         workbook.close()
-        filename = "%s.xlsx" % re.sub(r"[^\w\-.]+", "_", self.name or "libro_fiscal")
-        attachment = self.env["ir.attachment"].create({
-            "name": filename,
-            "type": "binary",
-            "datas": base64.b64encode(output.getvalue()),
-            "res_model": self._name,
-            "res_id": self.id,
-            "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        })
+        filename = "{}.xlsx".format(
+            re.sub(r"[^\w\-.]+", "_", self.name or "libro_fiscal")
+        )
+        attachment = self.env["ir.attachment"].create(
+            {
+                "name": filename,
+                "type": "binary",
+                "datas": base64.b64encode(output.getvalue()),
+                "res_model": self._name,
+                "res_id": self.id,
+                "mimetype": (
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ),
+            }
+        )
         return {
             "type": "ir.actions.act_url",
-            "url": "/web/content/%s?download=true" % attachment.id,
+            "url": f"/web/content/{attachment.id}?download=true",
             "target": "self",
         }

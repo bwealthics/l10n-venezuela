@@ -1,0 +1,5 @@
+- Vauxoo \<<info@vauxoo.com>\>
+  - Nhomar Hernandez \<<nhomar@vauxoo.com>\>
+  - Humberto Arocha \<<hbto@vauxoo.com>\>
+- Guillermo Montoya \<<https://github.com/guillermm>\>
+- Alejandro Fernandez \<<aef@bwealthics.com>\> (migration to 19.0)
